@@ -423,3 +423,14 @@ def test_xml_to_html_groups_same_tag_leaves_into_one_table():
 
 def test_json_to_html_escapes_values():
     assert "&lt;script&gt;" in kerykeion_api.json_to_html({"name": "<script>"})
+
+
+@pytest.mark.parametrize("tracking", [{"utm_source": "chatgpt.com"}, {"utm_medium": "x", "utm_campaign": "y"}, {"fbclid": "abc"}, {"gclid": "abc"}])
+def test_tracking_parameters_are_ignored(tracking):
+    """ChatGPT appends utm_source=chatgpt.com to the URLs it fetches."""
+    response = get("/natal", **as_query("p1", BOB), f="json", **tracking)
+    assert response["statusCode"] == 200, response["body"]
+
+
+def test_other_unknown_query_keys_are_still_refused():
+    assert get("/natal", **as_query("p1", BOB), utm="x")["statusCode"] == 400

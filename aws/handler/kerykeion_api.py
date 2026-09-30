@@ -285,6 +285,9 @@ def _write_inputs(body: dict[str, Any], workdir: Path) -> None:
 # ── query string → body (GET) ────────────────────────────────────────────────
 
 _SUBJECT_KEY = re.compile(r"(p[1-9])_(\w+)")
+# Tracking parameters that link sharers and chat agents append (ChatGPT adds utm_source=chatgpt.com);
+# they are not flags, and refusing them would break the link. Any other unknown key is still a 400.
+_TRACKING_KEY = re.compile(r"utm_\w+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|mc_cid|mc_eid|_ga|_gl|igshid|yclid")
 _LIST_FIELDS = frozenset({"active_points", "active_fixed_stars"})
 _TRUE, _FALSE = frozenset({"true", "1", "yes", "on", ""}), frozenset({"false", "0", "no", "off"})
 
@@ -304,6 +307,8 @@ def query_body(parts: list[str], params: dict[str, list[str]]) -> dict[str, Any]
     body: dict[str, Any] = {}
     subjects: dict[str, dict[str, Any]] = {}
     for key, values in params.items():
+        if _TRACKING_KEY.fullmatch(key):
+            continue
         if key in ("subjects", "files"):
             raise RequestError(f"{key!r} is not available in a query string; use p1_<field>/p2_<field>, or POST")
         match = _SUBJECT_KEY.fullmatch(key)
