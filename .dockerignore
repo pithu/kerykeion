@@ -1,0 +1,12 @@
+# The Lambda image (aws/Dockerfile) needs only the library, the CLI and the handler.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!NOTICE
+!licenses/
+!kerykeion/
+!cli/
+!aws/handler/
+**/__pycache__
+**/*.pyc
