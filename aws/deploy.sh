@@ -11,9 +11,9 @@
 #   EPHEMERIS_TIER   medium (1550-2650, default) | base (1850-2150, smaller image)
 #   BUDGET_EMAIL     mail a monthly cost alarm here (the stack's budget); unset: no budget
 #   BUDGET_USD       the alarm's monthly limit for the whole account, default 5
-#   THROTTLE_RATE    requests per second for all callers together, default 2
-#   THROTTLE_BURST   burst requests, default 5
-#   CONCURRENCY      invocations at once (reserved concurrency), default 25
+#   THROTTLE_RATE    requests per second for all callers together, default 0.1667 (10/min)
+#   THROTTLE_BURST   burst requests, default 10
+#   CONCURRENCY      invocations at once (reserved concurrency), default 15
 #   MEMORY_SIZE      Lambda memory in MB, default 2048
 #
 # Every stack parameter is passed on every run: 'cloudformation deploy' would
@@ -87,9 +87,9 @@ aws cloudformation deploy \
     ImageUri="$IMAGE" \
     BudgetEmail="${BUDGET_EMAIL:-}" \
     MonthlyBudgetUsd="${BUDGET_USD:-5}" \
-    ThrottleRateLimit="${THROTTLE_RATE:-2}" \
-    ThrottleBurstLimit="${THROTTLE_BURST:-5}" \
-    ReservedConcurrency="${CONCURRENCY:-25}" \
+    ThrottleRateLimit="${THROTTLE_RATE:-0.1667}" \
+    ThrottleBurstLimit="${THROTTLE_BURST:-10}" \
+    ReservedConcurrency="${CONCURRENCY:-15}" \
     MemorySize="${MEMORY_SIZE:-2048}"
 
 output() {

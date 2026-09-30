@@ -66,8 +66,8 @@ request took longer than 29 s).
 |---|---|---|
 | request time | 29 s (API Gateway) | a long range or fine step: split it |
 | response size | 6 MB (Lambda) | 413; narrow the range, widen the step or use `"f": "xml"` |
-| rate | default 2 requests/s, burst 5, for all callers together | 429; wait and retry |
-| concurrency | default 25 requests computed at once | rarely reached; the rate limit comes first |
+| rate | default 10 requests/minute, burst 10, for all callers together | 429; wait a few seconds and retry |
+| concurrency | default 15 requests computed at once | rarely reached; the rate limit comes first |
 | ephemeris | 1550–2650 (default image) | 422 with exit 6 |
 
 A cold start (the first request after a pause) takes a few seconds; after that a

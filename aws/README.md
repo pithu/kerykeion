@@ -73,11 +73,12 @@ stack):
 
 | Guard | Default | Effect |
 |---|---|---|
-| Stage throttling | 2 requests/s, burst 5 | for all callers together; the rest get 429 |
-| Reserved concurrency | 25 | never more than 25 invocations at once; above burst + rate × cold start (~6 s), or excess requests get 500 |
+| Stage throttling | 10 requests/minute (0.1667/s), burst 10 | for all callers together; the rest get 429 |
+| Reserved concurrency | 15 | never more than 15 invocations at once; above burst + rate × cold start (~6 s), or excess requests get 500 |
 | Budget alarm | 5 USD/month, `BUDGET_EMAIL` | a mail at 80 % of actual and 100 % of forecast cost |
 
-Continuous traffic at the throttle limit would cost around 30–50 USD a month;
+Continuous traffic at the throttle limit (about 430,000 requests a month) would
+cost around 5 USD a month;
 this is the ceiling, not an estimate. The budget alarm covers the whole
 account and mails long before that.
 

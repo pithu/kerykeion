@@ -21,19 +21,21 @@ Parameters:
     Description: Lambda memory in MB (CPU scales with it).
   ThrottleRateLimit:
     Type: Number
-    Default: 2
-    Description: Steady-state requests per second, for all callers together.
+    Default: 0.1667
+    Description: Steady-state requests per second, for all callers together (0.1667 = 10 per minute).
   ThrottleBurstLimit:
     Type: Number
-    Default: 5
-    Description: Burst requests, for all callers together.
+    Default: 10
+    Description: >-
+      Burst requests, for all callers together: the bucket the rate refills. It
+      lets one conversation fetch several charts in a row without a 429.
   ReservedConcurrency:
     Type: Number
-    Default: 25
+    Default: 15
     MinValue: 1
     Description: >-
       At most this many invocations run at once. Keep it above burst + rate x
-      cold start (5 + 2/s x ~6 s = 17): a request API Gateway lets through but
+      cold start (10 + 0.17/s x ~6 s = 11): a request API Gateway lets through but
       Lambda throttles comes back as a 500, not a 429. Cost is bounded by the
       rate limit, not by this.
   BudgetEmail:
