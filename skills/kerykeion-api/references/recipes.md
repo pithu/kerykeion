@@ -23,6 +23,17 @@ jq '. + {s: "einstein", f: "xml"}' subjects.json \
   | curl -s "$KERYKEION_API_URL/natal" -d @- | head -3
 ```
 
+## A page for an agent that can only fetch URLs
+
+Without `f` the answer is an HTML page of tables, which fetch tools read well;
+`f=yaml` is the full model in a text form:
+
+```bash
+Q="p1_name=Anna&p1_date=1985-06-01&p1_time=09:30&p1_lat=48.1374&p1_lng=11.5755&p1_tz=Europe/Berlin"
+curl -s "$KERYKEION_API_URL/natal?$Q" | grep -o "<h3>[a-z ]*</h3>" | head -4
+curl -s "$KERYKEION_API_URL/natal?$Q&f=yaml" | grep -E "^(name|zodiac_type):"
+```
+
 ## Save an SVG, and fail loudly on an error
 
 `--fail` makes curl exit non-zero on an HTTP error instead of saving the JSON
@@ -50,7 +61,7 @@ Branch on the status (or on `exit_code` in the body), not on the message:
 ```bash
 # gate: expect-error
 status=$(curl -s "$KERYKEION_API_URL/natal" \
-  -d '{"s": "nobody"}' -o error.json -w '%{http_code}')
+  -d '{"s": "nobody", "f": "json"}' -o error.json -w '%{http_code}')
 echo "HTTP $status, exit $(jq -r '.exit_code' error.json): $(jq -r '.error' error.json)"
 ```
 

@@ -12,6 +12,12 @@ API on their own.
     POST /<cmd>[/<sub>]        run it; the JSON body carries the flags
     POST /run                  {"argv": [...]} for anything the body mapping cannot say
 
+Formats (``f``): ``html`` (the default: compact tables), ``json``, ``xml``,
+``yaml``, ``text``, ``svg``. The CLI knows json/xml/text/svg; html is rendered
+here from the CLI's XML context view (or from its JSON where a model has none),
+yaml from its JSON. XML and YAML are served as text/plain, which every agent's
+fetch tool reads; ``X-Kerykeion-Format`` names the format.
+
 GET exists for agents that can only fetch a URL (no body, no headers): the
 query string maps like the body, a repeated key is a list, ``true``/``false``
 set switches, and ``p1_<field>``/``p2_<field>`` describe up to two subjects,
@@ -35,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import html
 import io
 import json
 import logging
@@ -44,13 +51,12 @@ import shutil
 import tempfile
 import time
 import traceback
+import xml.etree.ElementTree as ET
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any, Optional
 
-os.environ.setdefault("KERYKEION_CLI_FORMAT", "json")
-
-from kerykeion_cli import app, errors  # noqa: E402 — after the format default
+from kerykeion_cli import app, errors
 
 logger = logging.getLogger("kerykeion_api")
 logger.setLevel(logging.INFO)
@@ -63,12 +69,20 @@ BLOCKED_OPTIONS = frozenset({"-o", "--output"})
 BLOCKED_COMMANDS = {("subject", "save"): "profiles are not stored; send them in the request's \"subjects\" object"}
 # Exit code → HTTP status.
 HTTP_STATUS = {0: 200, 2: 400, 4: 400, 5: 422, 6: 422, 7: 502, 8: 413, 9: 422, 130: 503}
+# The formats the API serves, and the CLI format each is rendered from.
+DEFAULT_FORMAT = "html"
+CLI_FORMAT = {"html": "xml", "json": "json", "xml": "xml", "yaml": "json", "text": "text", "svg": "svg"}
+# XML and YAML go out as text/plain: agents' fetch tools read text/* reliably, application/* not always.
 CONTENT_TYPES = {
+    "html": "text/html; charset=utf-8",
     "json": "application/json; charset=utf-8",
     "svg": "image/svg+xml; charset=utf-8",
-    "xml": "application/xml; charset=utf-8",
+    "xml": "text/plain; charset=utf-8",
+    "yaml": "text/plain; charset=utf-8",
     "text": "text/plain; charset=utf-8",
 }
+# The CLI's message when a model has no to_context XML view: html then renders from JSON.
+_NO_XML_VIEW = "Unsupported model type"
 # Lambda's synchronous response limit is 6 MB, and the proxy envelope takes a share of it.
 MAX_BODY_BYTES = 5_500_000
 MAX_HEADER_CHARS = 4000
@@ -366,15 +380,177 @@ def execute(argv: list[str]) -> tuple[int, str, str]:
     return int(code), out.getvalue(), err.getvalue()
 
 
-def _format_of(argv: list[str]) -> str:
+def negotiate(argv: list[str]) -> tuple[list[str], str]:
+    """``(cli argv, api format)``: the requested ``-f`` (default html) swapped for the CLI format it renders from."""
+    requested: Optional[str] = None
+    rest: list[str] = []
+    skip = False
     for index, token in enumerate(argv):
-        if token in ("-f", "--format") and index + 1 < len(argv):
-            return argv[index + 1]
-        if token.startswith("--format="):
-            return token.split("=", 1)[1]
-        if token.startswith("-f") and len(token) > 2 and not token.startswith("--"):
-            return token[2:]
-    return os.environ.get("KERYKEION_CLI_FORMAT", "json")
+        if skip:
+            skip = False
+            continue
+        if token in ("-f", "--format"):
+            if index + 1 >= len(argv):
+                raise RequestError(f"{token} needs a value")
+            requested, skip = argv[index + 1], True
+        elif token.startswith("--format="):
+            requested = token.split("=", 1)[1]
+        elif token.startswith("-f") and len(token) > 2 and not token.startswith("--"):
+            requested = token[2:]
+        else:
+            rest.append(token)
+    fmt = (requested or DEFAULT_FORMAT).strip().lower()
+    if fmt not in CLI_FORMAT:
+        raise RequestError(f"unknown format {requested!r}; choose from {', '.join(CLI_FORMAT)}")
+    # --envelope wraps the payload in JSON, so an enveloped html page is rendered from that JSON.
+    cli_fmt = "json" if fmt == "html" and "--envelope" in rest else CLI_FORMAT[fmt]
+    return rest + ["-f", cli_fmt], fmt
+
+
+def _with_cli_format(argv: list[str], cli_fmt: str) -> list[str]:
+    return argv[:-1] + [cli_fmt] if argv[-2:-1] == ["-f"] else argv + ["-f", cli_fmt]
+
+
+# ── HTML and YAML renderers ──────────────────────────────────────────────────
+
+_CSS = (
+    "body{font:15px/1.5 system-ui,sans-serif;margin:24px auto;max-width:1100px;padding:0 16px;color:#1f1d1a;background:#fff}"
+    "h1{font-size:1.5rem}h2{font-size:1.2rem;margin-top:28px}h3{font-size:1.02rem}"
+    "table{border-collapse:collapse;margin:8px 0 16px;font-size:.92rem}"
+    "th,td{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}th{background:#f4f4f4}"
+    ".warnings{background:#fff8e6;border-left:3px solid #e0a800;padding:8px 12px;white-space:pre-wrap}"
+)
+
+
+def _esc(value: Any) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _heading(level: int, text: str) -> str:
+    level = min(level, 6)
+    return f"<h{level}>{_esc(text)}</h{level}>"
+
+
+def _label(tag: str) -> str:
+    return tag.replace("_", " ")
+
+
+def _kv_table(pairs: Any) -> str:
+    rows = "".join(f"<tr><th>{_esc(_label(str(k)))}</th><td>{_esc(v)}</td></tr>" for k, v in pairs)
+    return f"<table>{rows}</table>"
+
+
+def _grid(columns: list[str], rows: list[list[Any]]) -> str:
+    head = "".join(f"<th>{_esc(_label(c))}</th>" for c in columns)
+    body = "".join("<tr>" + "".join(f"<td>{_esc(cell)}</td>" for cell in row) + "</tr>" for row in rows)
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _xml_element(element: ET.Element, level: int) -> str:
+    title = _label(element.tag) + (f": {element.get('name')}" if element.get("name") else "")
+    parts = [_heading(level, title)]
+    attributes = [(k, v) for k, v in element.attrib.items() if k != "name"]  # the name is in the heading
+    if attributes:
+        parts.append(_kv_table(attributes))
+    if element.text and element.text.strip():
+        parts.append(f"<p>{_esc(element.text.strip())}</p>")
+    children = list(element)
+    index = 0
+    while index < len(children):
+        child = children[index]
+        if len(child):  # an element with children: its own section
+            parts.append(_xml_element(child, level + 1))
+            index += 1
+            continue
+        run = [child]  # consecutive leaves with one tag become one table
+        while index + len(run) < len(children) and not len(children[index + len(run)]) and children[index + len(run)].tag == child.tag:
+            run.append(children[index + len(run)])
+        if len(run) > 1:
+            columns = list(dict.fromkeys(key for leaf in run for key in leaf.attrib))
+            if len(run) < len(children):  # the run is not the whole section: name it
+                parts.append(_heading(level + 1, _label(child.tag)))
+            parts.append(_grid(columns, [[leaf.get(c, "") for c in columns] for leaf in run]))
+        else:
+            parts.append(_xml_element(child, level + 1))
+        index += len(run)
+    return "<section>" + "".join(parts) + "</section>"
+
+
+def xml_to_html(text: str) -> str:
+    """The CLI's XML context view as sections and tables: runs of same-tag leaves (points, houses, aspects) are one table each."""
+    return _xml_element(ET.fromstring(text), 2)
+
+
+def _cell(value: Any) -> Any:
+    return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else ("" if value is None else value)
+
+
+def _json_block(value: Any, level: int, title: Optional[str] = None) -> str:
+    parts = [_heading(level, _label(title))] if title else []
+    if isinstance(value, dict):
+        nested = {k: v for k, v in value.items() if isinstance(v, (dict, list)) and v}
+        scalars = [(k, _cell(v)) for k, v in value.items() if k not in nested]
+        dict_rows = [v for v in nested.values() if isinstance(v, dict)]
+        same_shape = len(dict_rows) > 1 and len(dict_rows) == len(nested) and all(
+            not any(isinstance(x, (dict, list)) for x in row.values()) for row in dict_rows
+        )
+        if scalars:
+            parts.append(_kv_table(scalars))
+        if same_shape:  # e.g. sun, moon, … : one row each
+            columns = list(dict.fromkeys(key for row in dict_rows for key in row))
+            parts.append(_grid(["key"] + columns, [[k] + [_cell(v.get(c)) for c in columns] for k, v in nested.items()]))
+        else:
+            parts.extend(_json_block(v, level + 1, k) for k, v in nested.items())
+    elif isinstance(value, list):
+        if value and all(isinstance(item, dict) for item in value):
+            columns = list(dict.fromkeys(key for item in value for key in item))
+            parts.append(_grid(columns, [[_cell(item.get(c)) for c in columns] for item in value]))
+        else:
+            parts.append("<ul>" + "".join(f"<li>{_esc(_cell(item))}</li>" for item in value) + "</ul>")
+    else:
+        parts.append(f"<p>{_esc(_cell(value))}</p>")
+    return "<section>" + "".join(parts) + "</section>"
+
+
+def json_to_html(value: Any) -> str:
+    """Any JSON payload as tables: a list of objects is one table, a map of same-shaped objects is one table."""
+    return _json_block(value, 2)
+
+
+def html_page(title: str, body: str, warnings: str = "") -> str:
+    note = f'<h2>Warnings</h2><div class="warnings">{_esc(warnings.strip())}</div>' if warnings.strip() else ""
+    return (
+        f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{_esc(title)}</title>'
+        f'<meta name="viewport" content="width=device-width, initial-scale=1"><style>{_CSS}</style></head>'
+        f"<body><h1>{_esc(title)}</h1>{body}{note}</body></html>\n"
+    )
+
+
+def _title(argv: list[str], stdout: str, cli_fmt: str) -> str:
+    command = " ".join(a for a in argv[:2] if not a.startswith("-") and a not in ("-f",))
+    name = None
+    try:
+        if cli_fmt == "xml":
+            name = ET.fromstring(stdout).get("name")
+        elif cli_fmt == "json":
+            data = json.loads(stdout)
+            data = data.get("data", data) if isinstance(data, dict) else data
+            name = data.get("name") if isinstance(data, dict) else None
+    except (ET.ParseError, ValueError):
+        pass
+    return f"kerykeion {command}" + (f": {name}" if name else "")
+
+
+def render(fmt: str, cli_fmt: str, stdout: str, argv: list[str], warnings: str) -> str:
+    """The CLI's *stdout* (in *cli_fmt*) as the body for the requested *fmt*."""
+    if fmt == "yaml":
+        import yaml
+
+        return yaml.safe_dump(json.loads(stdout), sort_keys=False, allow_unicode=True)
+    if fmt == "html":
+        body = xml_to_html(stdout) if cli_fmt == "xml" else json_to_html(json.loads(stdout))
+        return html_page(_title(argv, stdout, cli_fmt), body, warnings)
+    return stdout
 
 
 def _header_safe(text: str) -> str:
@@ -396,15 +572,25 @@ def _json_response(status: int, payload: Any, headers: Optional[dict[str, str]] 
     return _response(status, json.dumps(payload, indent=2), CONTENT_TYPES["json"], headers)
 
 
-def _error(status: int, message: str, exit_code: Optional[int] = None) -> dict[str, Any]:
+def _error(status: int, message: str, exit_code: Optional[int] = None, fmt: str = "json", headers: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    """An error in JSON, or as a small page when the client asked for HTML."""
+    if fmt == "html":
+        body = _kv_table([("status", status), ("exit code", exit_code), ("error", message)])
+        return _response(status, html_page(f"Error {status}", body), CONTENT_TYPES["html"], headers)
     payload: dict[str, Any] = {"error": message}
     if exit_code is not None:
         payload["exit_code"] = exit_code
-    return _json_response(status, payload)
+    return _json_response(status, payload, headers)
 
 
 def run_request(argv: list[str], body: dict[str, Any], help_request: bool = False) -> dict[str, Any]:
     """Run *argv* inside a fresh request directory and shape the HTTP response."""
+    fmt = "text"
+    try:
+        if not help_request:
+            argv, fmt = negotiate(argv)
+    except RequestError as exc:
+        return _error(400, str(exc), exit_code=4)
     workdir = Path(tempfile.mkdtemp(prefix="kerykeion-"))
     previous_cwd = os.getcwd()
     previous_xdg = os.environ.get("XDG_CONFIG_HOME")
@@ -415,8 +601,11 @@ def run_request(argv: list[str], body: dict[str, Any], help_request: bool = Fals
         _write_inputs(body, workdir)
         _check_argv(argv, workdir)
         code, stdout, stderr = execute(argv)
+        if fmt == "html" and code == errors.ExitCode.INVALID_INPUT and _NO_XML_VIEW in stderr:
+            argv = _with_cli_format(argv, "json")  # this model has no XML view: tables from its JSON
+            code, stdout, stderr = execute(argv)
     except RequestError as exc:
-        return _error(400, str(exc), exit_code=4)
+        return _error(400, str(exc), exit_code=4, fmt=fmt)
     finally:
         os.chdir(previous_cwd)
         if previous_xdg is None:
@@ -424,17 +613,17 @@ def run_request(argv: list[str], body: dict[str, Any], help_request: bool = Fals
         else:
             os.environ["XDG_CONFIG_HOME"] = previous_xdg
         shutil.rmtree(workdir, ignore_errors=True)
-    logger.info(json.dumps({"command": [a for a in argv if not a.startswith("-")][:2], "exit_code": code, "ms": round((time.monotonic() - started) * 1000)}))
+    logger.info(json.dumps({"command": [a for a in argv if not a.startswith("-")][:2], "format": fmt, "exit_code": code, "ms": round((time.monotonic() - started) * 1000)}))
 
-    headers = {"X-Kerykeion-Exit-Code": str(code)}
+    headers = {"X-Kerykeion-Exit-Code": str(code), "X-Kerykeion-Format": fmt}
     if code != 0:
-        return _json_response(HTTP_STATUS.get(code, 500), {"exit_code": code, "error": stderr.strip() or stdout.strip()}, headers)
+        return _error(HTTP_STATUS.get(code, 500), stderr.strip() or stdout.strip(), exit_code=code, fmt=fmt, headers=headers)
     if stderr.strip():
         headers["X-Kerykeion-Warnings"] = _header_safe(stderr)
-    fmt = "text" if help_request else _format_of(argv)
-    if len(stdout.encode("utf-8")) > MAX_BODY_BYTES:
-        return _error(413, "the response exceeds Lambda's 6 MB limit; narrow the range, widen the step or use \"f\": \"xml\"", exit_code=8)
-    return _response(200, stdout, CONTENT_TYPES.get(fmt, CONTENT_TYPES["text"]), headers)
+    payload = stdout if help_request else render(fmt, argv[-1], stdout, argv, stderr)
+    if len(payload.encode("utf-8")) > MAX_BODY_BYTES:
+        return _error(413, "the response exceeds Lambda's 6 MB limit; narrow the range, widen the step or use f=xml", exit_code=8, fmt=fmt)
+    return _response(200, payload, CONTENT_TYPES[fmt], headers)
 
 
 # ── Lambda entry point ───────────────────────────────────────────────────────
@@ -461,15 +650,23 @@ def _path_parts(event: dict[str, Any]) -> list[str]:
     return [part for part in path.strip("/").split("/") if part]
 
 
+def _format_hint(values: Any) -> str:
+    """The format a request asked for, before it is parsed: how to render an early error."""
+    requested = str(values or DEFAULT_FORMAT).strip().lower()
+    return requested if requested in CLI_FORMAT else "json"
+
+
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     """API Gateway (REST, proxy integration) → the CLI."""
     method = (event.get("httpMethod") or "GET").upper()
+    fmt = "json"
     try:
         parts = _path_parts(event)
         if method == "GET":
             if not parts:
                 return _json_response(200, catalog())
             params = _query_params(event)
+            fmt = _format_hint((params.get("f") or params.get("format") or [None])[-1])
             if not params:
                 command_parser(parts)
                 return run_request(parts + ["--help"], {}, help_request=True)
@@ -480,6 +677,7 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         if method != "POST":
             return _error(405, "use GET or POST")
         body = _body(event)
+        fmt = _format_hint(body.get("f") or body.get("format"))
         if parts == ["run"]:
             argv = body.get("argv")
             if not isinstance(argv, list) or not argv:
@@ -489,7 +687,7 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             raise RequestError("POST to a command path, e.g. /natal or /sky/eclipses; GET / lists them")
         return run_request(build_argv(parts, body), body)
     except RequestError as exc:
-        return _error(400, str(exc), exit_code=4)
+        return _error(400, str(exc), exit_code=4, fmt=fmt)
     except Exception:  # noqa: BLE001 — never let API Gateway see a raw 502
         logger.exception("unhandled error")
-        return _error(500, "internal error", exit_code=1)
+        return _error(500, "internal error", exit_code=1, fmt=fmt)

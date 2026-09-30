@@ -27,6 +27,9 @@ ALICE = {"name": "Alice", "date": "1985-03-02", "time": "08:15", "lat": 48.14, "
 
 
 def call(method: str, path: str, body: object = None) -> dict:
+    """A POST/GET with a JSON body. It asks for JSON unless the body names a format: the default (html) has its own tests."""
+    if isinstance(body, dict) and not {"f", "format"} & body.keys():
+        body = {**body, "f": "json"}
     event = {"httpMethod": method, "path": path, "body": None if body is None else json.dumps(body)}
     return kerykeion_api.handler(event, None)
 
@@ -64,7 +67,8 @@ def test_synastry_binds_two_inline_subjects_and_renders_svg():
 def test_xml_format_and_long_flag_names():
     response = call("POST", "/natal", {"subjects": {"bob": BOB}, "subject": "bob", "format": "xml"})
     assert response["statusCode"] == 200, response["body"]
-    assert response["headers"]["Content-Type"].startswith("application/xml")
+    assert response["headers"]["Content-Type"].startswith("text/plain")  # text/*: every fetch tool reads it
+    assert response["headers"]["X-Kerykeion-Format"] == "xml"
     assert response["body"].lstrip().startswith("<")
 
 
@@ -195,7 +199,7 @@ def test_unsupported_method_is_405():
 def test_file_output_is_refused(argv):
     response = call("POST", "/run", {"argv": argv, "subjects": {"bob": BOB}})
     assert response["statusCode"] == 400
-    assert "output" in payload(response)["error"]
+    assert "output" in response["body"]  # an html page: /run's format comes from its argv, which names none
 
 
 def test_output_is_not_even_a_known_flag():
@@ -336,3 +340,86 @@ def test_bad_get_requests_are_400(params):
 
 def test_run_is_post_only():
     assert get("/run", argv="natal")["statusCode"] == 400
+
+
+# ── response formats ─────────────────────────────────────────────────────────
+
+
+def test_html_is_the_default_with_a_planets_table():
+    response = kerykeion_api.handler({"httpMethod": "POST", "path": "/natal", "body": json.dumps({"subjects": {"bob": BOB}, "s": "bob"})}, None)
+    assert response["statusCode"] == 200, response["body"]
+    assert response["headers"]["Content-Type"].startswith("text/html")
+    assert response["headers"]["X-Kerykeion-Format"] == "html"
+    body = response["body"]
+    assert body.startswith("<!doctype html>") and "<title>kerykeion natal: Bob</title>" in body
+    assert "<h3>planets</h3><table>" in body and "<td>Sun</td>" in body
+
+
+def test_get_defaults_to_html_too():
+    response = get("/natal", **as_query("p1", BOB))
+    assert response["headers"]["Content-Type"].startswith("text/html")
+
+
+def test_html_falls_back_to_json_tables_without_an_xml_view():
+    response = get("/sky/eclipses", start_year=2027, count=1)
+    assert response["statusCode"] == 200, response["body"]
+    assert response["headers"]["Content-Type"].startswith("text/html")
+    assert "<h3>solar eclipses</h3>" in response["body"] and "annular" in response["body"]
+
+
+def test_html_carries_the_warnings_in_the_page():
+    response = get("/transits", **as_query("p1", BOB), **{"from": "2025-01-01", "to": "2025-01-10", "step_type": "days", "events": "true"})
+    assert response["statusCode"] == 200, response["body"]
+    assert "<h2>Warnings</h2>" in response["body"] and "sampling step" in response["body"]
+
+
+def test_yaml_is_the_json_payload():
+    import yaml
+
+    as_json = call("POST", "/natal", {"subjects": {"bob": BOB}, "s": "bob", "f": "json"})
+    as_yaml = call("POST", "/natal", {"subjects": {"bob": BOB}, "s": "bob", "f": "yaml"})
+    assert as_yaml["headers"]["Content-Type"].startswith("text/plain")
+    assert as_yaml["headers"]["X-Kerykeion-Format"] == "yaml"
+    assert yaml.safe_load(as_yaml["body"]) == payload(as_json)
+
+
+@pytest.mark.parametrize("fmt", ["yaml", "html"])
+def test_envelope_works_with_derived_formats(fmt):
+    response = call("POST", "/natal", {"subjects": {"bob": BOB}, "s": "bob", "f": fmt, "envelope": True})
+    assert response["statusCode"] == 200, response["body"]
+    assert "Bob" in response["body"] and "warnings" in response["body"]
+
+
+def test_run_takes_a_derived_format():
+    response = call("POST", "/run", {"argv": ["natal", "-s", "bob", "-f", "yaml"], "subjects": {"bob": BOB}})
+    assert response["statusCode"] == 200, response["body"]
+    assert response["body"].startswith("name: Bob")
+
+
+def test_unknown_format_is_400():
+    response = call("POST", "/natal", {"subjects": {"bob": BOB}, "s": "bob", "f": "pdf"})
+    assert response["statusCode"] == 400
+    assert "html, json, xml, yaml" in payload(response)["error"]
+
+
+def test_errors_are_html_pages_when_html_is_asked_for():
+    cli_error = get("/natal", p1_date="1400-01-01", p1_time="12:00", p1_lat=45, p1_lng=9, p1_tz="Europe/Rome")
+    assert cli_error["statusCode"] == 422
+    assert cli_error["headers"]["Content-Type"].startswith("text/html") and "exit code" in cli_error["body"]
+    early_error = get("/natal", **as_query("p1", BOB), offline="maybe")  # refused before the CLI runs
+    assert early_error["statusCode"] == 400
+    assert early_error["headers"]["Content-Type"].startswith("text/html")
+
+
+def test_help_stays_plain_text():
+    assert get("/natal")["headers"]["Content-Type"].startswith("text/plain")
+
+
+def test_xml_to_html_groups_same_tag_leaves_into_one_table():
+    rendered = kerykeion_api.xml_to_html('<chart name="X"><planets><point name="Sun" sign="Ari"/><point name="Moon" sign="Tau"/></planets></chart>')
+    assert rendered.count("<table>") == 1
+    assert "<th>name</th><th>sign</th>" in rendered and "<td>Moon</td><td>Tau</td>" in rendered
+
+
+def test_json_to_html_escapes_values():
+    assert "&lt;script&gt;" in kerykeion_api.json_to_html({"name": "<script>"})

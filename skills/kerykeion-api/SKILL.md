@@ -88,11 +88,12 @@ Full mapping rules and the subject fields:
 ## The rules that keep results usable
 
 1. **Check the HTTP status first.** 200 means the body is the payload; anything
-   else is `{"exit_code", "error"}`. Branch on the status or on `exit_code`,
-   not on the message.
-2. **Pass `"f"` explicitly** (`json`, `xml`, `svg`, `text`). JSON is the default
-   and the full model (~35 KB for a natal chart); `"f": "xml"` is the same chart
-   in ~5 KB, the shape to read into a context window.
+   else is an error, as `{"exit_code", "error"}` for JSON. Branch on the status
+   or on `exit_code`, not on the message.
+2. **Pass `"f"` explicitly.** Without it the answer is an HTML page of tables,
+   made for agents that fetch URLs. A program wants `"f": "json"` (the full
+   model, ~35 KB for a natal chart); `"f": "xml"` is the same chart in ~5 KB,
+   the shape to read into a context window; `"f": "yaml"` is the JSON as YAML.
 3. **Warnings are not in a JSON body** unless you ask: they arrive in the
    `X-Kerykeion-Warnings` header. `"envelope": true` puts them, with
    provenance, into the JSON itself; use it when you cannot read headers.

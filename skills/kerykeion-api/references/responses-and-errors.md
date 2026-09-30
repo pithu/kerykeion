@@ -2,19 +2,25 @@
 
 ## A successful response
 
-The body is exactly what the CLI prints on stdout; `Content-Type` follows `"f"`:
+`"f"` chooses the format; without it the answer is HTML:
 
 | `"f"` | Content-Type | Body |
 |---|---|---|
-| `json` (default) | `application/json` | the library's full model |
-| `xml` | `application/xml` | `to_context()`: the same chart in ~5 KB, for a context window |
+| `html` (default) | `text/html` | a page of compact tables (planets, axes, houses, aspects …) built from the XML view; commands without one get tables from their JSON; warnings in a section at the end |
+| `json` | `application/json` | the library's full model |
+| `xml` | `text/plain` | `to_context()`: the same chart in ~5 KB, for a context window |
+| `yaml` | `text/plain` | the JSON model as YAML |
 | `svg` | `image/svg+xml` | the chart; only chart commands produce one |
 | `text` | `text/plain` | the ASCII report |
+
+XML and YAML are served as `text/plain` on purpose: agents' fetch tools read
+`text/*` reliably. A program should ask for `json`.
 
 Headers:
 
 | Header | Content |
 |---|---|
+| `X-Kerykeion-Format` | the format of the body (`html`, `json`, `xml`, `yaml`, `text`, `svg`) |
 | `X-Kerykeion-Exit-Code` | the CLI exit code (`0` on success) |
 | `X-Kerykeion-Warnings` | the CLI's stderr on one line (lines joined by ` \| `), up to 4000 characters; absent when there were none |
 
@@ -39,7 +45,8 @@ turn any warning into a 422.
 
 ## An error response
 
-Every error is JSON, whatever `"f"` asked for:
+An error is a small HTML page when HTML was asked for (also by default), and
+JSON for every other format:
 
 ```json
 {"exit_code": 4, "error": "kerykeion: error: No profile named 'ada' and no such file."}

@@ -92,9 +92,6 @@ Resources:
       EphemeralStorage:
         Size: 512
       Role: !GetAtt FunctionRole.Arn
-      Environment:
-        Variables:
-          KERYKEION_CLI_FORMAT: json
 
   # ── API Gateway (REST, proxy integration) ───────────────────────────────────
   RestApi:

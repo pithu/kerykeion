@@ -42,10 +42,13 @@ curl -s "$KERYKEION_API_URL/synastry" -d '{
 }' > synastry.svg
 ```
 
-The response body is the CLI's stdout: `Content-Type` follows `f`
-(json/svg/xml/text; JSON by default). Warnings go to the `X-Kerykeion-Warnings`
-header (or into the body with `"envelope": true`), and the CLI exit code to
-`X-Kerykeion-Exit-Code`.
+`f` chooses the format: `html` (the default: compact tables built from the XML
+context view), `json`, `xml`, `yaml`, `text` or `svg`. XML and YAML are served as
+`text/plain`, which every agent's fetch tool reads; `X-Kerykeion-Format` names
+the format. Warnings go to the `X-Kerykeion-Warnings` header (and into an HTML
+page's last section, or into the body with `"envelope": true`), and the CLI
+exit code to `X-Kerykeion-Exit-Code`. Errors are an HTML page for `html`, JSON
+otherwise.
 
 | Exit code | HTTP | Meaning |
 |---|---|---|

@@ -15,7 +15,6 @@ ARG EPHEMERIS_TIER=medium
 
 ENV LIBEPHEMERIS_DATA_DIR=/opt/libephemeris \
     LIBEPHEMERIS_PRECISION=${EPHEMERIS_TIER} \
-    KERYKEION_CLI_FORMAT=json \
     HOME=/tmp \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -23,7 +22,8 @@ COPY pyproject.toml README.md LICENSE NOTICE /src/
 COPY licenses /src/licenses
 COPY kerykeion /src/kerykeion
 COPY cli /src/cli
-RUN pip install --no-cache-dir /src /src/cli && rm -rf /src
+# pyyaml: the API's f=yaml (the library and the CLI do not need it).
+RUN pip install --no-cache-dir /src /src/cli pyyaml && rm -rf /src
 
 RUN if [ "${EPHEMERIS_TIER}" != "base" ]; then \
       python -c "from libephemeris.download import download_leb2_for_tier as d; d('${EPHEMERIS_TIER}', groups=None, show_progress=False)" ; \
