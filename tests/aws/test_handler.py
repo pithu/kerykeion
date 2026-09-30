@@ -8,6 +8,7 @@ the only one a plain checkout is guaranteed to have.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -123,6 +124,33 @@ def test_request_directories_are_removed_and_the_environment_restored(monkeypatc
     assert list(scratch.iterdir()) == []
     assert os.getcwd() == cwd
     assert os.environ["XDG_CONFIG_HOME"] == xdg
+
+
+class _StdoutAtEmit(logging.Handler):
+    """Like the Lambda runtime's root handler: it writes to whatever ``sys.stdout`` is at emit time."""
+
+    def emit(self, record):
+        sys.stdout.write(f"[{record.levelname}]\t{record.getMessage()}\n")
+
+
+def test_library_log_records_stay_out_of_the_payload():
+    """A library warning must reach the warnings header, not the front of the JSON body."""
+    root = logging.getLogger()
+    lambda_like = _StdoutAtEmit()
+    root.addHandler(lambda_like)
+    try:
+        before = root.handlers[:]
+        response = call(
+            "POST",
+            "/transits",
+            {"subjects": {"bob": BOB}, "s": "bob", "from": "2025-01-01", "to": "2025-01-10", "step_type": "days", "events": True},
+        )
+        assert root.handlers == before  # the runtime's handlers are back after the request
+    finally:
+        root.removeHandler(lambda_like)
+    assert response["statusCode"] == 200, response["body"]
+    payload(response)  # valid JSON: nothing was written in front of it
+    assert "sampling step" in response["headers"]["X-Kerykeion-Warnings"]
 
 
 # ── errors map to HTTP ───────────────────────────────────────────────────────

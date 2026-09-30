@@ -266,22 +266,38 @@ def _write_inputs(body: dict[str, Any], workdir: Path) -> None:
 
 
 def execute(argv: list[str]) -> tuple[int, str, str]:
-    """Run the CLI on *argv*; ``(exit code, stdout, stderr)``. Never raises, never exits."""
+    """Run the CLI on *argv*; ``(exit code, stdout, stderr)``. Never raises, never exits.
+
+    The Lambda runtime's root log handler writes to stdout, so while the CLI
+    runs the root logger is pointed at the captured stderr: a library warning
+    belongs in ``X-Kerykeion-Warnings``, not in front of the JSON payload.
+    """
     out, err = io.StringIO(), io.StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        try:
-            code = app.run(argv)
-        except SystemExit as exc:  # argparse (2, or 0 for --help), exit 9
-            if isinstance(exc.code, int) or exc.code is None:
-                code = exc.code or 0
-            else:
-                err.write(f"{exc.code}\n")
-                code = 1
-        except BaseException as exc:  # noqa: BLE001 — the CLI's own boundary, minus the exit
-            code = int(errors.classify(exc))
-            if code == errors.ExitCode.UNEXPECTED:
-                logger.error("unexpected error for %s\n%s", argv[:2], "".join(traceback.format_exception(exc)))
-            err.write(f"kerykeion: error: {errors._clean_message(exc)}\n")
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    capture = logging.StreamHandler(err)
+    capture.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    root.handlers = [capture]
+    unexpected: Optional[str] = None
+    try:
+        with redirect_stdout(out), redirect_stderr(err):
+            try:
+                code = app.run(argv)
+            except SystemExit as exc:  # argparse (2, or 0 for --help), exit 9
+                if isinstance(exc.code, int) or exc.code is None:
+                    code = exc.code or 0
+                else:
+                    err.write(f"{exc.code}\n")
+                    code = 1
+            except BaseException as exc:  # noqa: BLE001 — the CLI's own boundary, minus the exit
+                code = int(errors.classify(exc))
+                if code == errors.ExitCode.UNEXPECTED:
+                    unexpected = "".join(traceback.format_exception(exc))
+                err.write(f"kerykeion: error: {errors._clean_message(exc)}\n")
+    finally:
+        root.handlers = saved_handlers
+    if unexpected:  # after the handlers are back, so it reaches the function's logs
+        logger.error("unexpected error for %s\n%s", argv[:2], unexpected)
     return int(code), out.getvalue(), err.getvalue()
 
 
