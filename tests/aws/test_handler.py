@@ -85,8 +85,8 @@ def test_raw_argv_route():
 
 
 def test_list_values_repeat_the_flag():
-    argv = kerykeion_api.build_argv(["natal"], {"s": "bob", "with": ["Chiron", "Lilith"]})
-    assert argv[argv.index("--with") + 1] == "Chiron"
+    argv = kerykeion_api.build_argv(["natal"], {"s": "bob", "with": ["dignities", "lunar_phase"]})
+    assert argv[argv.index("--with") + 1] == "dignities"
     assert argv.count("--with") == 2
 
 

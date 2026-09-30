@@ -330,6 +330,12 @@ help = "Test the agent skill's snippets standalone (no import prelude, no shared
 cmd = "python scripts/test_skill_cli_snippets.py"
 help = "Run every bash block in skills/kerykeion-cli against a sandboxed profile store"
 
+# The REST API skill's examples are curl calls; this runs them against the
+# Lambda handler in-process (a curl stand-in on PATH), so no deployment is needed.
+[tool.poe.tasks."skill:api:smoke"]
+cmd = "python scripts/test_skill_api_snippets.py"
+help = "Run every bash block in skills/kerykeion-api against the Lambda handler"
+
 # Regenerate Golden Standards — one command per category
 [tool.poe.tasks."regenerate:glyph-widths"]
 help = "Re-measure the info panel's glyph-width tables from the reference fonts (macOS only)"
