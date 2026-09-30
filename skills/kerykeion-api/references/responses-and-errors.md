@@ -27,7 +27,7 @@ When a client cannot read headers, the envelope puts provenance and the
 warnings into the JSON body. It needs JSON output:
 
 ```bash
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/natal" -d '{
   "subjects": {"bob": {"name": "Bob", "date": "1985-06-01", "time": "09:30", "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome"}},
   "s": "bob", "f": "json", "envelope": true
 }' | jq '{kerykeion, warnings, sun: .data.sun.sign}'
@@ -57,8 +57,8 @@ Every error is JSON, whatever `"f"` asked for:
 | 502 | 7 | network error (GeoNames unreachable) |
 
 Returned by API Gateway, before kerykeion runs, with its own body
-(`{"message": ...}`): 403 (API key), 429 (throttle or monthly quota),
-504 (the request took longer than 29 s).
+(`{"message": ...}`): 429 (the rate limit, shared by all callers), 504 (the
+request took longer than 29 s).
 
 ## Limits
 
@@ -66,8 +66,8 @@ Returned by API Gateway, before kerykeion runs, with its own body
 |---|---|---|
 | request time | 29 s (API Gateway) | a long range or fine step: split it |
 | response size | 6 MB (Lambda) | 413; narrow the range, widen the step or use `"f": "xml"` |
-| rate | the usage plan (default 10/s, burst 20) | 429; back off |
-| quota | the usage plan (default 50,000/month) | 429 until the month rolls over |
+| rate | default 2 requests/s, burst 5, for all callers together | 429; wait and retry |
+| concurrency | default 25 requests computed at once | rarely reached; the rate limit comes first |
 | ephemeris | 1550–2650 (default image) | 422 with exit 6 |
 
 A cold start (the first request after a pause) takes a few seconds; after that a

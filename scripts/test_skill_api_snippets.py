@@ -39,7 +39,6 @@ HANDLER_DIR = PROJECT_ROOT / "aws" / "handler"
 SKIP_MARKER = "# gate: skip"
 ERROR_MARKER = "# gate: expect-error"
 API_URL = "https://api.example.test/v1"
-API_KEY = "test-key"
 
 BASH_BLOCK = re.compile(r"```(?:bash|console|sh)\n(.*?)```", re.DOTALL)
 
@@ -47,12 +46,17 @@ BASH_BLOCK = re.compile(r"```(?:bash|console|sh)\n(.*?)```", re.DOTALL)
 # other, so an example cannot pass on an option the real curl would read
 # differently.
 FAKE_CURL = r'''#!{python}
-import json, os, sys
+import json, os, sys, urllib.parse
 sys.path.insert(0, {handler_dir!r})
 
-args, method, body, headers = sys.argv[1:], None, None, {{}}
+args, method, body, headers, data = sys.argv[1:], None, None, {{}}, []
 url = out_file = dump = write_out = None
-include = fail = fail_with_body = False
+include = fail = fail_with_body = get = False
+# Split bundled short switches (-sG, -sSf) the way curl reads them.
+def _split(arg):
+    bundled = arg.startswith("-") and not arg.startswith("--") and len(arg) > 2 and set(arg[1:]) <= set("sSGLfi")
+    return [f"-{{c}}" for c in arg[1:]] if bundled else [arg]
+args = [part for arg in args for part in _split(arg)]
 i = 0
 def value():
     global i
@@ -62,7 +66,7 @@ def value():
     return args[i]
 while i < len(args):
     a = args[i]
-    if a in ("-s", "-S", "-sS", "--silent", "--show-error", "-L", "--location"):
+    if a in ("-s", "-S", "--silent", "--show-error", "-L", "--location"):
         pass
     elif a in ("-H", "--header"):
         k, _, v = value().partition(":")
@@ -73,6 +77,13 @@ while i < len(args):
             body = sys.stdin.read()
         elif body.startswith("@"):
             body = open(body[1:], encoding="utf-8").read()
+        data.append(body)
+    elif a == "--data-urlencode":
+        k, sep, v = value().partition("=")
+        data.append(f"{{k}}={{urllib.parse.quote(v, safe='')}}" if sep else urllib.parse.quote(k, safe=""))
+        body = "&".join(data)
+    elif a in ("-G", "--get"):
+        get = True
     elif a in ("-X", "--request"):
         method = value()
     elif a in ("-i", "--include"):
@@ -96,14 +107,22 @@ while i < len(args):
 base = os.environ["KERYKEION_API_URL"].rstrip("/")
 if not url or not url.startswith(base):
     sys.exit(f"curl (test stand-in): {{url!r}} is not under $KERYKEION_API_URL")
-path = url[len(base):] or "/"
+path, _, query = url[len(base):].partition("?")
+path = path or "/"
+if get:  # -G: the data goes into the query string, as with the real curl
+    query = "&".join(q for q in [query, *data] if q)
+    body = None
 method = (method or ("POST" if body is not None else "GET")).upper()
+multi = urllib.parse.parse_qs(query, keep_blank_values=True) if query else {{}}
 
-if headers.get("x-api-key") != os.environ["KERYKEION_API_KEY"]:
-    response = {{"statusCode": 403, "headers": {{"Content-Type": "application/json"}}, "body": '{{"message":"Forbidden"}}'}}
-else:
-    import kerykeion_api
-    response = kerykeion_api.handler({{"httpMethod": method, "path": path, "body": body}}, None)
+import kerykeion_api
+response = kerykeion_api.handler({{
+    "httpMethod": method,
+    "path": path,
+    "body": body,
+    "queryStringParameters": {{k: v[-1] for k, v in multi.items()}} or None,
+    "multiValueQueryStringParameters": multi or None,
+}}, None)
 
 status = response["statusCode"]
 with open(os.environ["KERYKEION_FAKE_CURL_LOG"], "a", encoding="utf-8") as log:
@@ -147,7 +166,6 @@ def run_block(code: str, *, workdir: Path, bindir: Path, timeout: float) -> tupl
         **os.environ,
         "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
         "KERYKEION_API_URL": API_URL,
-        "KERYKEION_API_KEY": API_KEY,
         "KERYKEION_FAKE_CURL_LOG": str(log),
         "XDG_CONFIG_HOME": str(workdir / "config"),
     }

@@ -11,7 +11,7 @@ cat > subjects.json <<'EOF'
           "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome"}
 }}
 EOF
-curl -s "$KERYKEION_API_URL/" -H "x-api-key: $KERYKEION_API_KEY" | jq -r '.version'
+curl -s "$KERYKEION_API_URL/" | jq -r '.version'
 ```
 
 ## A chart for a language model
@@ -20,7 +20,7 @@ curl -s "$KERYKEION_API_URL/" -H "x-api-key: $KERYKEION_API_KEY" | jq -r '.versi
 
 ```bash
 jq '. + {s: "einstein", f: "xml"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- | head -3
+  | curl -s "$KERYKEION_API_URL/natal" -d @- | head -3
 ```
 
 ## Save an SVG, and fail loudly on an error
@@ -30,7 +30,7 @@ error as `chart.svg`:
 
 ```bash
 jq '. + {s: "einstein", S: "bob", f: "svg", theme: "dark"}' subjects.json \
-  | curl -sS --fail "$KERYKEION_API_URL/synastry" -H "x-api-key: $KERYKEION_API_KEY" -d @- -o synastry.svg
+  | curl -sS --fail "$KERYKEION_API_URL/synastry" -d @- -o synastry.svg
 grep -c "<svg" synastry.svg
 ```
 
@@ -38,7 +38,7 @@ grep -c "<svg" synastry.svg
 
 ```bash
 jq '. + {s: "einstein", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- -D headers.txt -o chart.json
+  | curl -s "$KERYKEION_API_URL/natal" -d @- -D headers.txt -o chart.json
 grep -i -E "^HTTP|x-kerykeion" headers.txt
 jq -r '.sun.sign' chart.json
 ```
@@ -49,7 +49,7 @@ Branch on the status (or on `exit_code` in the body), not on the message:
 
 ```bash
 # gate: expect-error
-status=$(curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" \
+status=$(curl -s "$KERYKEION_API_URL/natal" \
   -d '{"s": "nobody"}' -o error.json -w '%{http_code}')
 echo "HTTP $status, exit $(jq -r '.exit_code' error.json): $(jq -r '.error' error.json)"
 ```
@@ -62,7 +62,7 @@ small:
 ```bash
 for name in einstein bob; do
   jq --arg n "$name" '{subjects: {($n): .subjects[$n]}, s: $n, f: "json"}' subjects.json \
-    | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- \
+    | curl -s "$KERYKEION_API_URL/natal" -d @- \
     | jq -r '"\(.name): Sun \(.sun.sign), Moon \(.moon.sign), Asc \(.ascendant.sign)"'
 done
 ```
@@ -71,7 +71,7 @@ done
 
 ```bash
 jq '. + {s: "einstein", from: "2025-01-01", to: "2025-03-01", step_type: "days", events: true, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/transits" -H "x-api-key: $KERYKEION_API_KEY" -d @- \
+  | curl -s "$KERYKEION_API_URL/transits" -d @- \
   | jq -r '.events[0:3][] | "\(.p1_name) \(.aspect) \(.p2_name)"'
 ```
 
@@ -91,7 +91,7 @@ body = {
 request = urllib.request.Request(
     os.environ["KERYKEION_API_URL"] + "/natal",
     data=json.dumps(body).encode(),
-    headers={"x-api-key": os.environ["KERYKEION_API_KEY"], "Content-Type": "application/json"},
+    headers={"Content-Type": "application/json"},
 )
 try:
     with urllib.request.urlopen(request, timeout=35) as response:

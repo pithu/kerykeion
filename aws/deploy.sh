@@ -9,6 +9,16 @@
 #   AWS_REGION       default: the profile's region
 #   STACK_NAME       default: kerykeion-api (also the ECR repository and Lambda name)
 #   EPHEMERIS_TIER   medium (1550-2650, default) | base (1850-2150, smaller image)
+#   BUDGET_EMAIL     mail a monthly cost alarm here (the stack's budget); unset: no budget
+#   BUDGET_USD       the alarm's monthly limit for the whole account, default 5
+#   THROTTLE_RATE    requests per second for all callers together, default 2
+#   THROTTLE_BURST   burst requests, default 5
+#   CONCURRENCY      invocations at once (reserved concurrency), default 25
+#   MEMORY_SIZE      Lambda memory in MB, default 2048
+#
+# Every stack parameter is passed on every run: 'cloudformation deploy' would
+# otherwise keep a parameter's previous value, and a changed default would never
+# reach an existing stack.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -73,19 +83,25 @@ aws cloudformation deploy \
   --template-file aws/template.yaml \
   --capabilities CAPABILITY_IAM \
   --no-fail-on-empty-changeset \
-  --parameter-overrides ImageUri="$IMAGE"
+  --parameter-overrides \
+    ImageUri="$IMAGE" \
+    BudgetEmail="${BUDGET_EMAIL:-}" \
+    MonthlyBudgetUsd="${BUDGET_USD:-5}" \
+    ThrottleRateLimit="${THROTTLE_RATE:-2}" \
+    ThrottleBurstLimit="${THROTTLE_BURST:-5}" \
+    ReservedConcurrency="${CONCURRENCY:-25}" \
+    MemorySize="${MEMORY_SIZE:-2048}"
 
 output() {
   aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
 }
 API_URL=$(output ApiUrl)
-API_KEY=$(aws apigateway get-api-key --api-key "$(output ApiKeyId)" --include-value --query value --output text)
 
 step "Deployed"
 cat <<EOF
   export KERYKEION_API_URL=$API_URL
-  export KERYKEION_API_KEY=$API_KEY
 
-  curl -s "\$KERYKEION_API_URL/" -H "x-api-key: \$KERYKEION_API_KEY" | jq '.commands | keys'
+  curl -s "\$KERYKEION_API_URL/" | jq '.commands | keys'
 EOF
+[ -n "${BUDGET_EMAIL:-}" ] || echo "  (no budget alarm: set BUDGET_EMAIL to get one)"

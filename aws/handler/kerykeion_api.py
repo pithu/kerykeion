@@ -7,9 +7,15 @@ dispatcher the console script uses. New CLI commands therefore appear in the
 API on their own.
 
     GET  /                     the command catalog (commands, flags, help), JSON
-    GET  /<cmd>[/<sub>]        the command's --help, text
+    GET  /<cmd>[/<sub>]        without a query string: the command's --help, text
+    GET  /<cmd>[/<sub>]?…      run it; the query string carries the flags
     POST /<cmd>[/<sub>]        run it; the JSON body carries the flags
     POST /run                  {"argv": [...]} for anything the body mapping cannot say
+
+GET exists for agents that can only fetch a URL (no body, no headers): the
+query string maps like the body, a repeated key is a list, ``true``/``false``
+set switches, and ``p1_<field>``/``p2_<field>`` describe up to two subjects,
+bound to ``-s``/``-S`` unless those are given.
 
 Body → argv: ``"s": "ada"`` → ``-s ada``; ``"houses": "placidus"`` →
 ``--houses placidus``; ``true`` → a bare flag; ``false`` → ``--no-x`` where the
@@ -262,6 +268,65 @@ def _write_inputs(body: dict[str, Any], workdir: Path) -> None:
         (workdir / name).write_text(json.dumps(content), encoding="utf-8")
 
 
+# ── query string → body (GET) ────────────────────────────────────────────────
+
+_SUBJECT_KEY = re.compile(r"(p[1-9])_(\w+)")
+_LIST_FIELDS = frozenset({"active_points", "active_fixed_stars"})
+_TRUE, _FALSE = frozenset({"true", "1", "yes", "on", ""}), frozenset({"false", "0", "no", "off"})
+
+
+def _switch(key: str, value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered in _TRUE:
+        return True
+    if lowered in _FALSE:
+        return False
+    raise RequestError(f"{key!r} is a switch; pass true or false, not {value!r}")
+
+
+def query_body(parts: list[str], params: dict[str, list[str]]) -> dict[str, Any]:
+    """The body equivalent of a GET query string, typed by the command's own parser."""
+    options = _option_index(command_parser(parts))
+    body: dict[str, Any] = {}
+    subjects: dict[str, dict[str, Any]] = {}
+    for key, values in params.items():
+        if key in ("subjects", "files"):
+            raise RequestError(f"{key!r} is not available in a query string; use p1_<field>/p2_<field>, or POST")
+        match = _SUBJECT_KEY.fullmatch(key)
+        if match:
+            name, field = match.groups()
+            value = values[-1]
+            subjects.setdefault(name, {})[field] = [v.strip() for v in value.split(",") if v.strip()] if field in _LIST_FIELDS else value
+            continue
+        if key == "args":
+            body["args"] = values
+            continue
+        action = options.get(_flag_for(key, options))
+        if isinstance(action, argparse.BooleanOptionalAction) or (action is not None and action.nargs == 0):
+            body[key] = _switch(key, values[-1])
+        elif isinstance(action, argparse._AppendAction):
+            body[key] = values
+        else:
+            if len(values) > 1:
+                raise RequestError(f"{key!r} takes a single value; it appears {len(values)} times")
+            body[key] = values[0]
+    if subjects:
+        body["subjects"] = subjects
+        for name, flag in (("p1", "s"), ("p2", "S")):
+            if name in subjects and flag not in body and not ({"subject", "subject2"} & body.keys()):
+                if f"-{flag}" not in options:
+                    raise RequestError(f"{'/'.join(parts)} takes no {'second ' if flag == 'S' else ''}subject; drop the {name}_ fields")
+                body[flag] = name
+    return body
+
+
+def _query_params(event: dict[str, Any]) -> dict[str, list[str]]:
+    multi = event.get("multiValueQueryStringParameters")
+    if multi:
+        return {key: list(values) for key, values in multi.items()}
+    return {key: [value] for key, value in (event.get("queryStringParameters") or {}).items()}
+
+
 # ── execution ────────────────────────────────────────────────────────────────
 
 
@@ -404,10 +469,16 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         if method == "GET":
             if not parts:
                 return _json_response(200, catalog())
-            command_parser(parts)
-            return run_request(parts + ["--help"], {}, help_request=True)
+            params = _query_params(event)
+            if not params:
+                command_parser(parts)
+                return run_request(parts + ["--help"], {}, help_request=True)
+            if parts == ["run"]:
+                raise RequestError("/run takes POST; run a command with GET /<command>?<flags>")
+            body = query_body(parts, params)
+            return run_request(build_argv(parts, body), body)
         if method != "POST":
-            return _error(405, "use GET for the catalog and help, POST to run a command")
+            return _error(405, "use GET or POST")
         body = _body(event)
         if parts == ["run"]:
             argv = body.get("argv")

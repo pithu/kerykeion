@@ -256,3 +256,83 @@ def test_get_an_unknown_command_is_400():
 def test_proxy_path_parameter_wins_over_the_raw_path():
     event = {"httpMethod": "GET", "path": "/v1/natal", "pathParameters": {"proxy": "natal"}}
     assert kerykeion_api.handler(event, None)["statusCode"] == 200
+
+
+# ── GET with a query string (for agents that can only fetch a URL) ───────────
+
+
+def get(path: str, **params: object) -> dict:
+    """A GET as API Gateway delivers it: every value a string, repeated keys in the multi-value map."""
+    multi = {key: [str(v) for v in value] if isinstance(value, list) else [str(value)] for key, value in params.items()}
+    event = {
+        "httpMethod": "GET",
+        "path": path,
+        "queryStringParameters": {key: values[-1] for key, values in multi.items()} or None,
+        "multiValueQueryStringParameters": multi or None,
+    }
+    return kerykeion_api.handler(event, None)
+
+
+def as_query(prefix: str, subject: dict) -> dict:
+    return {f"{prefix}_{key}": value for key, value in subject.items()}
+
+
+def test_get_natal_with_p1_fields():
+    response = get("/natal", **as_query("p1", BOB), f="json")
+    assert response["statusCode"] == 200, response["body"]
+    assert payload(response)["name"] == "Bob"
+
+
+def test_get_synastry_binds_p1_and_p2():
+    response = get("/synastry", **as_query("p1", BOB), **as_query("p2", ALICE), f="xml")
+    assert response["statusCode"] == 200, response["body"]
+    assert "Bob" in response["body"] and "Alice" in response["body"]
+
+
+def test_get_with_inline_natal_flags_and_a_switch():
+    response = get("/natal", name="X", date="1990-01-01", time="12:00", lat="45", lng="9", tz="Europe/Rome", offline="true")
+    assert response["statusCode"] == 200, response["body"]
+
+
+def test_get_repeated_key_is_a_list():
+    body = kerykeion_api.query_body(["natal"], {"with": ["dignities", "lunar_phase"]})
+    assert body["with"] == ["dignities", "lunar_phase"]
+
+
+def test_get_false_switch_becomes_no_flag():
+    body = kerykeion_api.query_body(["natal"], {"zodiac_ring": ["false"]})
+    assert "--no-zodiac-ring" in kerykeion_api.build_argv(["natal"], body)
+
+
+def test_get_without_query_is_still_help():
+    response = get("/natal")
+    assert response["headers"]["Content-Type"].startswith("text/plain")
+
+
+def test_get_without_multi_value_map():
+    event = {"httpMethod": "GET", "path": "/natal", "queryStringParameters": {**as_query("p1", BOB)}}
+    assert kerykeion_api.handler(event, None)["statusCode"] == 200
+
+
+def test_explicit_s_wins_over_p1():
+    body = kerykeion_api.query_body(["natal"], {"p1_name": ["A"], "p9_name": ["B"], "s": ["p9"]})
+    assert body["s"] == "p9"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {**as_query("p1", BOB), "offline": "maybe"},  # a switch needs a boolean
+        {**as_query("p1", BOB), **as_query("p2", ALICE)},  # natal has no second subject
+        {"f": ["json", "xml"]},  # a single-value flag given twice
+        {"subjects": "{}"},  # POST only
+        {"bogus": "1"},
+    ],
+)
+def test_bad_get_requests_are_400(params):
+    response = get("/natal", **params)
+    assert response["statusCode"] == 400, response["body"]
+
+
+def test_run_is_post_only():
+    assert get("/run", argv="natal")["statusCode"] == 400

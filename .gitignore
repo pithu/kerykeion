@@ -111,3 +111,6 @@ tmp/
 misc.xml
 modules.xml
 vcs.xml
+
+# Homepage content for thuerwaechter.de/horoskop (deployed by hand, not part of the project)
+aws/homepage/horoskop/

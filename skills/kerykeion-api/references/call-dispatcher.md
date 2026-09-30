@@ -14,9 +14,9 @@ value that names a server path.
 ## Discovering targets
 
 ```bash
-curl -s "$KERYKEION_API_URL/call" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/call" \
   -d '{"list": true, "f": "json"}' | jq -r '.[0:3][] | .owner'
-curl -s "$KERYKEION_API_URL/call" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/call" \
   -d '{"args": ["ProfectionsFactory.from_subject"], "explain": true, "f": "json"}' | jq -r '.[].name'
 ```
 
@@ -37,9 +37,9 @@ cat > subjects.json <<'EOF'
                            "lat": 48.4011, "lng": 9.9876, "tz": "Europe/Berlin"}}}
 EOF
 jq '. + {args: ["DominantsFactory.from_subject"], s: "einstein", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/call" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.method'
+  | curl -s "$KERYKEION_API_URL/call" -d @- | jq -r '.method'
 jq '. + {args: ["MidpointFactory.compute"], s: "einstein", param: ["active_points=Sun,Moon"], f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/call" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'length'
+  | curl -s "$KERYKEION_API_URL/call" -d @- | jq 'length'
 ```
 
 `param` is a list of `name=value` strings; each value is coerced by the

@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   kerykeion REST API - the kerykeion CLI as an AWS Lambda container image behind
-  an API Gateway REST API, secured with an API key and a usage plan.
-  Deploy with aws/deploy.sh, which builds and pushes the image first.
+  an API Gateway REST API. Open (no API key): cost is bounded by stage
+  throttling and the function's reserved concurrency, and a budget alarm mails
+  when the month gets expensive. Deploy with aws/deploy.sh.
 
 Parameters:
   ImageUri:
@@ -20,20 +21,36 @@ Parameters:
     Description: Lambda memory in MB (CPU scales with it).
   ThrottleRateLimit:
     Type: Number
-    Default: 10
-    Description: Steady-state requests per second for the API key.
+    Default: 2
+    Description: Steady-state requests per second, for all callers together.
   ThrottleBurstLimit:
     Type: Number
-    Default: 20
-    Description: Burst requests for the API key.
-  MonthlyQuota:
+    Default: 5
+    Description: Burst requests, for all callers together.
+  ReservedConcurrency:
     Type: Number
-    Default: 50000
-    Description: Requests per month for the API key.
+    Default: 25
+    MinValue: 1
+    Description: >-
+      At most this many invocations run at once. Keep it above burst + rate x
+      cold start (5 + 2/s x ~6 s = 17): a request API Gateway lets through but
+      Lambda throttles comes back as a 500, not a 429. Cost is bounded by the
+      rate limit, not by this.
+  BudgetEmail:
+    Type: String
+    Default: ""
+    Description: Where the monthly budget alarm is mailed; empty skips the budget.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 5
+    Description: Monthly cost of the whole account, in USD, that triggers the alarm.
   LogRetentionDays:
     Type: Number
     Default: 14
     AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 180, 365]
+
+Conditions:
+  HasBudget: !Not [!Equals [!Ref BudgetEmail, ""]]
 
 Resources:
   # ── Lambda ──────────────────────────────────────────────────────────────────
@@ -67,6 +84,7 @@ Resources:
         ImageUri: !Ref ImageUri
       Architectures: [arm64]
       MemorySize: !Ref MemorySize
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
       # API Gateway gives up after 29 s; a longer Lambda timeout would only bill for answers nobody receives.
       Timeout: 29
       EphemeralStorage:
@@ -82,7 +100,6 @@ Resources:
     Properties:
       Name: !Ref AWS::StackName
       Description: kerykeion astrology CLI as a REST API
-      ApiKeySourceType: HEADER
       EndpointConfiguration:
         Types: [REGIONAL]
 
@@ -100,7 +117,6 @@ Resources:
       ResourceId: !GetAtt RestApi.RootResourceId
       HttpMethod: ANY
       AuthorizationType: NONE
-      ApiKeyRequired: true
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -113,7 +129,6 @@ Resources:
       ResourceId: !Ref ProxyResource
       HttpMethod: ANY
       AuthorizationType: NONE
-      ApiKeyRequired: true
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -127,7 +142,9 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*
 
-  Deployment:
+  # A deployment is a snapshot of the methods: CloudFormation does not redeploy
+  # when a method changes, so the logical ID is bumped whenever one does.
+  DeploymentV2:
     Type: AWS::ApiGateway::Deployment
     DependsOn: [RootMethod, ProxyMethod]
     Properties:
@@ -137,43 +154,47 @@ Resources:
     Type: AWS::ApiGateway::Stage
     Properties:
       RestApiId: !Ref RestApi
-      DeploymentId: !Ref Deployment
+      DeploymentId: !Ref DeploymentV2
       StageName: !Ref StageName
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: !Ref ThrottleRateLimit
+          ThrottlingBurstLimit: !Ref ThrottleBurstLimit
 
-  # ── API key and usage plan ──────────────────────────────────────────────────
-  ApiKey:
-    Type: AWS::ApiGateway::ApiKey
+  # ── Budget alarm ────────────────────────────────────────────────────────────
+  Budget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudget
     Properties:
-      Name: !Sub ${AWS::StackName}-key
-      Enabled: true
-
-  UsagePlan:
-    Type: AWS::ApiGateway::UsagePlan
-    Properties:
-      UsagePlanName: !Sub ${AWS::StackName}-plan
-      ApiStages:
-        - ApiId: !Ref RestApi
-          Stage: !Ref Stage
-      Throttle:
-        RateLimit: !Ref ThrottleRateLimit
-        BurstLimit: !Ref ThrottleBurstLimit
-      Quota:
-        Limit: !Ref MonthlyQuota
-        Period: MONTH
-
-  UsagePlanKey:
-    Type: AWS::ApiGateway::UsagePlanKey
-    Properties:
-      KeyId: !Ref ApiKey
-      KeyType: API_KEY
-      UsagePlanId: !Ref UsagePlan
+      Budget:
+        BudgetName: !Sub ${AWS::StackName}-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
 
 Outputs:
   ApiUrl:
-    Description: Base URL of the API (send the key in the x-api-key header)
+    Description: Base URL of the API
     Value: !Sub https://${RestApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${StageName}
-  ApiKeyId:
-    Description: "Read the key value with: aws apigateway get-api-key --include-value --api-key <id>"
-    Value: !Ref ApiKey
   FunctionName:
     Value: !Ref Function

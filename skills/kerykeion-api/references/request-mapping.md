@@ -7,14 +7,15 @@
 | `GET /` | the catalog: every command path with its flags, their kind and help (JSON) |
 | `GET /<cmd>[/<sub>]` | the command's help text, exactly as `kerykeion <cmd> --help` |
 | `POST /<cmd>[/<sub>]` | runs the command; the JSON body carries its flags |
+| `GET /<cmd>[/<sub>]?…` | runs the command; the query string carries the flags (see below) |
 | `POST /run` | `{"argv": [...]}`, a raw command line for anything the body cannot say |
 
 A group path alone (`/sky`, `/technique`) is 400 and names its commands.
 
 ```bash
-curl -s "$KERYKEION_API_URL/" -H "x-api-key: $KERYKEION_API_KEY" | jq '.commands | keys'
-curl -s "$KERYKEION_API_URL/" -H "x-api-key: $KERYKEION_API_KEY" | jq '.commands["sky/eclipses"].flags[] | {key, kind}'
-curl -s "$KERYKEION_API_URL/sky/eclipses" -H "x-api-key: $KERYKEION_API_KEY"
+curl -s "$KERYKEION_API_URL/" | jq '.commands | keys'
+curl -s "$KERYKEION_API_URL/" | jq '.commands["sky/eclipses"].flags[] | {key, kind}'
+curl -s "$KERYKEION_API_URL/sky/eclipses"
 ```
 
 In the catalog, each flag has a `key` (the body key to use), its CLI `names`,
@@ -45,7 +46,7 @@ Each request runs in a fresh, empty directory that is deleted afterwards.
 Profiles from an earlier request do not exist. Send them every time:
 
 ```bash
-curl -s "$KERYKEION_API_URL/synastry" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/synastry" -d '{
   "subjects": {
     "einstein": {"name": "Albert Einstein", "date": "1879-03-14", "time": "11:30",
                  "lat": 48.4011, "lng": 9.9876, "tz": "Europe/Berlin"},
@@ -81,7 +82,7 @@ file saved by the CLI (`input` section). Unknown fields are 400.
 A sidereal, whole-sign subject:
 
 ```bash
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/natal" -d '{
   "subjects": {"sid": {"name": "Sid", "date": "1990-03-21", "time": "06:00", "lat": 19.07, "lng": 72.88,
                        "tz": "Asia/Kolkata", "zodiac_type": "Sidereal", "sidereal_mode": "LAHIRI",
                        "houses_system_identifier": "W"}},
@@ -95,7 +96,7 @@ Profile names use ASCII letters, digits, spaces, `_`, `-` and `.`.
 subjects. `verify` is the cheap check that a recipe builds:
 
 ```bash
-curl -s "$KERYKEION_API_URL/subject/verify" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/subject/verify" -d '{
   "subjects": {"bob": {"name": "Bob", "date": "1985-06-01", "time": "09:30", "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome"}},
   "args": ["bob"]
 }'
@@ -108,7 +109,7 @@ curl -s "$KERYKEION_API_URL/subject/verify" -H "x-api-key: $KERYKEION_API_KEY" -
 `natal` (and `now`) also take the subject as flags, like the CLI:
 
 ```bash
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/natal" -d '{
   "name": "Bob", "date": "1985-06-01", "time": "09:30", "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome",
   "offline": true, "f": "xml"
 }'
@@ -124,7 +125,7 @@ Send the content under `"files"` and name it in the flag; the file exists in
 the request's working directory only:
 
 ```bash
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/natal" -d '{
   "subjects": {"bob": {"name": "Bob", "date": "1985-06-01", "time": "09:30", "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome"}},
   "s": "bob", "f": "svg",
   "files": {"palette.json": {"colors_settings": {"paper_0": "#101010"}}},
@@ -135,13 +136,46 @@ curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
 File names are plain names ending in `.json`. Any value that points at a path
 on the server (`/…`, `~…`, `..`) is 400.
 
+## GET: the query string instead of a body
+
+For clients that can only fetch a URL. The query string maps like the body:
+
+| Query | Same as |
+|---|---|
+| `f=xml`, `houses=placidus`, `to_date=2025-06-01` | the body key with that value |
+| `offline=true`, `zodiac_ring=false` | a switch (`true/false`, `1/0`, `yes/no`) |
+| `with=dignities&with=lunar_phase` | a list: repeat the key |
+| `args=...` | a positional argument |
+| `p1_<field>=...` | a field of subject `p1`, bound to `s` |
+| `p2_<field>=...` | a field of subject `p2`, bound to `S` |
+
+The `p1_`/`p2_` fields are the subject fields above (`p1_name`, `p1_date`,
+`p1_time`, `p1_lat`, `p1_lng`, `p1_tz`, `p1_zodiac_type`, …); list fields such
+as `p1_active_points` take comma-separated names.
+
+```bash
+curl -sG "$KERYKEION_API_URL/synastry" \
+  --data-urlencode "p1_name=Albert Einstein" --data-urlencode "p1_date=1879-03-14" \
+  --data-urlencode "p1_time=11:30" --data-urlencode "p1_lat=48.4011" \
+  --data-urlencode "p1_lng=9.9876" --data-urlencode "p1_tz=Europe/Berlin" \
+  --data-urlencode "p2_name=Bob" --data-urlencode "p2_date=1985-06-01" \
+  --data-urlencode "p2_time=09:30" --data-urlencode "p2_lat=45.07" \
+  --data-urlencode "p2_lng=7.69" --data-urlencode "p2_tz=Europe/Rome" \
+  --data-urlencode "f=xml" | head -3
+curl -s "$KERYKEION_API_URL/sky/eclipses?start_year=2027&count=1&f=json" | jq -r '.solar_eclipses[0].datestamp'
+```
+
+A path without a query string returns the command's help. `subjects`, `files`
+and `/run` need POST. URL-encode values: a space is `%20`, `+` in a time zone
+offset is `%2B`.
+
 ## `POST /run`
 
 The whole command line as a list, for the rare case the body mapping cannot
 express. `subjects` and `files` work the same way:
 
 ```bash
-curl -s "$KERYKEION_API_URL/run" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/run" -d '{
   "argv": ["aspects", "-s", "bob", "--aspects", "trine:6,square", "-f", "json"],
   "subjects": {"bob": {"name": "Bob", "date": "1985-06-01", "time": "09:30", "lat": 45.07, "lng": 7.69, "tz": "Europe/Rome"}}
 }'

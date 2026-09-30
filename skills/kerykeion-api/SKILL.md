@@ -2,9 +2,9 @@
 name: kerykeion-api
 description: >-
   Call kerykeion over HTTP: the kerykeion astrology CLI as a REST API
-  (AWS Lambda, API key). Use this skill WHENEVER astrology
-  must be computed through the kerykeion REST API, KERYKEION_API_URL /
-  KERYKEION_API_KEY are set, or the task says kerykeion plus API, REST, HTTP,
+  (AWS Lambda). Use this skill WHENEVER astrology
+  must be computed through the kerykeion REST API, KERYKEION_API_URL
+  is set, or the task says kerykeion plus API, REST, HTTP, GET URL,
   endpoint, curl, webhook, Lambda or "without installing Python": natal /
   synastry / transit / composite / return / progression charts and SVG wheels;
   aspects, dominants, moon phase, relationship score; profections, firdaria,
@@ -33,27 +33,23 @@ them instead of guessing.
 
 ## Setup
 
-Two environment variables, printed by `aws/deploy.sh` when the API is
-deployed:
+One environment variable, printed by `aws/deploy.sh` when the API is
+deployed. The API is open: no key, no header.
 
 ```bash
 # gate: skip
 export KERYKEION_API_URL=https://abc123.execute-api.eu-central-1.amazonaws.com/v1
-export KERYKEION_API_KEY=...
 ```
 
-Every request sends the key in the `x-api-key` header; a missing or wrong key
-gets `403 Forbidden` from API Gateway before kerykeion runs.
-
 ```bash
-curl -s "$KERYKEION_API_URL/" -H "x-api-key: $KERYKEION_API_KEY"
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY"
+curl -s "$KERYKEION_API_URL/"
+curl -s "$KERYKEION_API_URL/natal"
 ```
 
 ## The request in one example
 
 ```bash
-curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
+curl -s "$KERYKEION_API_URL/natal" -d '{
   "subjects": {"einstein": {"name": "Albert Einstein", "date": "1879-03-14", "time": "11:30",
                             "lat": 48.4011, "lng": 9.9876, "tz": "Europe/Berlin"}},
   "s": "einstein",
@@ -68,6 +64,23 @@ curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d '{
 - **The API is stateless.** Nothing is stored between requests. Send every
   subject in `"subjects"` on every request; it is a profile for that request
   only, so `-s`/`-S` work as on the command line.
+
+### GET: when all you can do is fetch a URL
+
+The same commands run from a plain URL, for agents that cannot send a body.
+The query string maps like the body; `p1_<field>` and `p2_<field>` describe
+up to two people, bound to `-s` and `-S`:
+
+```bash
+curl -sG "$KERYKEION_API_URL/natal" \
+  --data-urlencode "p1_name=Albert Einstein" --data-urlencode "p1_date=1879-03-14" \
+  --data-urlencode "p1_time=11:30" --data-urlencode "p1_lat=48.4011" \
+  --data-urlencode "p1_lng=9.9876" --data-urlencode "p1_tz=Europe/Berlin" \
+  --data-urlencode "f=xml" | head -3
+```
+
+That is `…/natal?p1_name=Albert%20Einstein&p1_date=1879-03-14&p1_time=11:30&…&f=xml`.
+A GET without a query string returns the command's help instead.
 
 Full mapping rules and the subject fields:
 [references/request-mapping.md](references/request-mapping.md).
@@ -90,10 +103,9 @@ Full mapping rules and the subject fields:
 |---|---|---|---|
 | 200 | 0 | success | — |
 | 400 | 2, 4 | unknown command or flag, invalid input, refused option | fix the field the `error` names |
-| 403 | — | missing or wrong API key (API Gateway) | send `x-api-key` |
 | 413 | 8 | sampling ceiling, or response over 6 MB | narrow the range, widen the step, use `"f": "xml"` |
 | 422 | 5, 6, 9 | kerykeion rejected it; date outside the ephemeris | astrological/domain error; read `error` |
-| 429 | — | usage plan throttle or monthly quota | back off and retry |
+| 429 | — | the API's rate limit (shared by all callers) | wait a few seconds and retry |
 | 500 | 1 | unexpected error | a bug; report it |
 | 502 | 7 | network (GeoNames) | give coordinates instead of a city |
 | 504 | — | over 29 s | split the request |
@@ -144,10 +156,10 @@ These produce a **wrong chart silently** or a confusing failure.
 ## Never invent values
 
 ```bash
-curl -s "$KERYKEION_API_URL/info/literals" -H "x-api-key: $KERYKEION_API_KEY" -d '{}'
-curl -s "$KERYKEION_API_URL/info/houses" -H "x-api-key: $KERYKEION_API_KEY" -d '{}'
-curl -s "$KERYKEION_API_URL/info/points" -H "x-api-key: $KERYKEION_API_KEY" -d '{}'
-curl -s "$KERYKEION_API_URL/info/methods" -H "x-api-key: $KERYKEION_API_KEY" -d '{}'
+curl -s "$KERYKEION_API_URL/info/literals" -d '{}'
+curl -s "$KERYKEION_API_URL/info/houses" -d '{}'
+curl -s "$KERYKEION_API_URL/info/points" -d '{}'
+curl -s "$KERYKEION_API_URL/info/methods" -d '{}'
 ```
 
 ## Reference index

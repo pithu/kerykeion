@@ -10,7 +10,8 @@ Gemini CLI, Windsurf, Cline, and others.
 
 ## What it covers
 
-- the request shape: the URL path is the command, the JSON body holds the flags;
+- the request shape: the URL path is the command, the JSON body (or the query
+  string, for agents that can only fetch a URL) holds the flags;
 - inline subjects, because the API is stateless and stores nothing;
 - `files` for flags that expect a JSON file, and `/run` for a raw command line;
 - HTTP status codes and how they map to the CLI's exit codes;
@@ -39,13 +40,12 @@ cp -r skills/kerykeion-api /path/to/your-project/.codex/skills/kerykeion-api
 # Cursor, Windsurf, Cline and others: copy into the agent's skills directory.
 ```
 
-The skill needs a deployed API. `aws/deploy.sh` deploys one and prints the two
-variables the skill reads:
+The skill needs a deployed API. `aws/deploy.sh` deploys one and prints the
+variable the skill reads:
 
 ```bash
 # gate: skip
 export KERYKEION_API_URL=https://abc123.execute-api.eu-central-1.amazonaws.com/v1
-export KERYKEION_API_KEY=...
 ```
 
 ## Contents

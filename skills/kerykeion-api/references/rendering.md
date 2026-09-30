@@ -11,7 +11,7 @@ cat > subjects.json <<'EOF'
                            "lat": 48.4011, "lng": 9.9876, "tz": "Europe/Berlin"}}}
 EOF
 jq '. + {s: "einstein", f: "svg"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- -o einstein.svg
+  | curl -s "$KERYKEION_API_URL/natal" -d @- -o einstein.svg
 head -c 5 einstein.svg
 ```
 
@@ -35,9 +35,9 @@ head -c 5 einstein.svg
 
 ```bash
 jq '. + {s: "einstein", f: "svg", theme: "dark", chart_language: "DE", svg_variant: "wheel"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- -o dark-wheel.svg
+  | curl -s "$KERYKEION_API_URL/natal" -d @- -o dark-wheel.svg
 jq '. + {s: "einstein", f: "svg", transparent_background: true, zodiac_ring: false}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- -o plain.svg
+  | curl -s "$KERYKEION_API_URL/natal" -d @- -o plain.svg
 grep -c "<svg" dark-wheel.svg plain.svg
 ```
 
@@ -57,7 +57,7 @@ keys. `chart_settings` names a JSON file; send its content under `files`:
 jq '. + {s: "einstein", f: "svg",
          files: {"palette.json": {colors_settings: {paper_0: "#101010"}}},
          chart_settings: "palette.json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- | grep -c "#101010"
+  | curl -s "$KERYKEION_API_URL/natal" -d @- | grep -c "#101010"
 ```
 
 The sections are `colors_settings`, `celestial_points_settings`,
@@ -71,7 +71,7 @@ replace the default list.
 
 ```bash
 jq '. + {s: "einstein", f: "text"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- | head -5
+  | curl -s "$KERYKEION_API_URL/natal" -d @- | head -5
 ```
 
 On reports with an aspects section (the chart paths), `no_aspects: true` drops

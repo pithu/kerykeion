@@ -19,7 +19,7 @@ cat > subjects.json <<'EOF'
 }}
 EOF
 jq '. + {s: "einstein", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/natal" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.sun.sign'
+  | curl -s "$KERYKEION_API_URL/natal" -d @- | jq -r '.sun.sign'
 ```
 
 ## Charts
@@ -36,14 +36,14 @@ jq '. + {s: "einstein", f: "json"}' subjects.json \
 
 ```bash
 jq '. + {s: "einstein", S: "bob", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/synastry" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq '.aspects | length'
+  | curl -s "$KERYKEION_API_URL/synastry" -d @- | jq '.aspects | length'
 jq '. + {s: "einstein", to_date: "2025-06-01", to_time: "12:00", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/transit" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.chart_type'
+  | curl -s "$KERYKEION_API_URL/transit" -d @- | jq -r '.chart_type'
 jq '. + {s: "einstein", type: "Solar", year: 2025, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/return" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.chart_type'
+  | curl -s "$KERYKEION_API_URL/return" -d @- | jq -r '.chart_type'
 jq '. + {s: "einstein", target_year: 2026, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/progression" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.chart_type'
-curl -s "$KERYKEION_API_URL/now" -H "x-api-key: $KERYKEION_API_KEY" \
+  | curl -s "$KERYKEION_API_URL/progression" -d @- | jq -r '.chart_type'
+curl -s "$KERYKEION_API_URL/now" \
   -d '{"lat": 52.52, "lng": 13.405, "tz": "Europe/Berlin", "offline": true, "f": "json"}' | jq -r '.moon.sign'
 ```
 
@@ -55,15 +55,15 @@ error in the houses and Ascendant.
 
 ```bash
 jq '. + {s: "einstein", S: "bob", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/aspects" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq '.aspects | length'
+  | curl -s "$KERYKEION_API_URL/aspects" -d @- | jq '.aspects | length'
 jq '. + {s: "einstein", declinations: true, orb: 1.0, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/aspects" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'length'
+  | curl -s "$KERYKEION_API_URL/aspects" -d @- | jq 'length'
 jq '. + {s: "einstein", method: "almuten_figuris", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/dominants" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'keys | length'
+  | curl -s "$KERYKEION_API_URL/dominants" -d @- | jq 'keys | length'
 jq '. + {s: "einstein", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/moon" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.moon.phase_name'
+  | curl -s "$KERYKEION_API_URL/moon" -d @- | jq -r '.moon.phase_name'
 jq '. + {s: "einstein", S: "bob", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/relationship-score" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.score_description'
+  | curl -s "$KERYKEION_API_URL/relationship-score" -d @- | jq -r '.score_description'
 ```
 
 `aspects` takes names or `name:orb` pairs as a list:
@@ -78,15 +78,15 @@ instead and refuse `aspects`.
 
 ```bash
 jq '. + {s: "einstein", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/technique/profections" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.current.house'
+  | curl -s "$KERYKEION_API_URL/technique/profections" -d @- | jq -r '.current.house'
 jq '. + {s: "einstein", lot: "fortune", levels: 2, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/technique/zr" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'keys | length'
+  | curl -s "$KERYKEION_API_URL/technique/zr" -d @- | jq 'keys | length'
 jq '. + {s: "einstein", target_year: 2026, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/technique/solar-arc" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'keys | length'
+  | curl -s "$KERYKEION_API_URL/technique/solar-arc" -d @- | jq 'keys | length'
 jq '. + {s: "einstein", orb: 1.5, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/technique/fixed-stars" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'length'
+  | curl -s "$KERYKEION_API_URL/technique/fixed-stars" -d @- | jq 'length'
 jq '. + {s: "einstein", S: "bob", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/technique/house-comparison" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'keys | length'
+  | curl -s "$KERYKEION_API_URL/technique/house-comparison" -d @- | jq 'keys | length'
 ```
 
 Enum-style values (`lot`, `rate`, `method`, `type`) are case-insensitive;
@@ -101,21 +101,21 @@ place; `phenomena` and `occultations` take `s`.
 
 ```bash
 jq '. + {s: "einstein", from: "2025-06-01", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/sky/sun-times" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.sunrise'
+  | curl -s "$KERYKEION_API_URL/sky/sun-times" -d @- | jq -r '.sunrise'
 jq '. + {s: "einstein", from: "2025-06-01T12:00", f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/sky/hours" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq -r '.day_ruler'
-curl -s "$KERYKEION_API_URL/sky/lunations" -H "x-api-key: $KERYKEION_API_KEY" \
+  | curl -s "$KERYKEION_API_URL/sky/hours" -d @- | jq -r '.day_ruler'
+curl -s "$KERYKEION_API_URL/sky/lunations" \
   -d '{"from": "2025-01-01", "to": "2025-03-01", "f": "json"}' | jq '.lunations | length'
-curl -s "$KERYKEION_API_URL/sky/ingresses" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/sky/ingresses" \
   -d '{"from": "2025-01-01", "to": "2025-06-01", "periods": true, "f": "json"}' | jq '.periods | length'
-curl -s "$KERYKEION_API_URL/sky/stations" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/sky/stations" \
   -d '{"from": "2025-01-01", "to": "2025-06-01", "f": "json"}' | jq 'length'
-curl -s "$KERYKEION_API_URL/sky/eclipses" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/sky/eclipses" \
   -d '{"start_year": 2027, "count": 2, "f": "json"}' | jq -r '.solar_eclipses[0].datestamp'
-curl -s "$KERYKEION_API_URL/sky/voc" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/sky/voc" \
   -d '{"from": "2025-01-01", "to": "2025-01-10", "tz": "UTC", "f": "json"}' | jq '.windows | length'
 jq '. + {s: "einstein", planet: "Venus", count: 2, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/sky/occultations" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq 'length'
+  | curl -s "$KERYKEION_API_URL/sky/occultations" -d @- | jq 'length'
 ```
 
 `periods: true` on `ingresses` and `stations` reports spans instead of events.
@@ -125,11 +125,11 @@ the subject's moment and requires `planet`: the Moon is the occulter.
 ## Time series
 
 ```bash
-curl -s "$KERYKEION_API_URL/ephemeris" -H "x-api-key: $KERYKEION_API_KEY" \
+curl -s "$KERYKEION_API_URL/ephemeris" \
   -d '{"from": "2025-01-01", "to": "2025-01-05", "step_type": "days", "step": 1,
        "lat": 45.0, "lng": 9.0, "tz": "Europe/Rome", "f": "json"}' | jq 'length'
 jq '. + {s: "einstein", from: "2025-01-01", to: "2025-02-01", step_type: "days", events: true, f: "json"}' subjects.json \
-  | curl -s "$KERYKEION_API_URL/transits" -H "x-api-key: $KERYKEION_API_KEY" -d @- | jq '.events | length'
+  | curl -s "$KERYKEION_API_URL/transits" -d @- | jq '.events | length'
 ```
 
 Both refuse a request over the sampling ceiling (413) before computing
@@ -148,5 +148,5 @@ applying → exact → separating events; `refine: true` requires it.
 | `/call` | any public factory: [call-dispatcher.md](call-dispatcher.md) |
 
 ```bash
-curl -s "$KERYKEION_API_URL/status" -H "x-api-key: $KERYKEION_API_KEY" -d '{"f": "json"}' | jq -r '.kerykeion_version'
+curl -s "$KERYKEION_API_URL/status" -d '{"f": "json"}' | jq -r '.kerykeion_version'
 ```
